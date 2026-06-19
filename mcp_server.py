@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from arq import create_pool
 from arq.connections import RedisSettings
 from mcp.server.fastmcp import FastMCP, Context
+from mcp.server.transport_security import TransportSecuritySettings
 
 from config import settings, get_client_config, get_supabase_client
 from schemas import AgendarReuniaoRequest
@@ -59,7 +60,8 @@ async def mcp_lifespan(mcp_instance: FastMCP):
 mcp = FastMCP(
     "scheduling_mcp",
     lifespan=mcp_lifespan,
-    instructions="Serviço de agendamento multi-tenant integrado com Google Calendar e Supabase."
+    instructions="Serviço de agendamento multi-tenant integrado com Google Calendar e Supabase.",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)
 )
 
 # 4. Ferramentas (Tools) do MCP

@@ -226,4 +226,138 @@ def test_check_availability_available(mock_calendar, mock_config):
         }
     )
 
+# 5. Testes de Integração com CRM
+import httpx
+from utils.crm import send_crm_event
+
+@pytest.mark.asyncio
+async def test_send_crm_event_skipped():
+    # Sem crm_config
+    res = await send_crm_event("client-a", {}, None)
+    assert res["status"] == "skipped"
+    assert "Sem configuração" in res["reason"]
+
+    # crm_type = none
+    res = await send_crm_event("client-a", {}, {"crm_type": "none"})
+    assert res["status"] == "skipped"
+
+    # crm_type inválido
+    with pytest.raises(ValueError, match="não é suportado"):
+        await send_crm_event("client-a", {}, {"crm_type": "pipedrive"})
+
+    # webhook_url ausente
+    with pytest.raises(ValueError, match="não configurada"):
+        await send_crm_event("client-a", {}, {"crm_type": "webhook"})
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_send_crm_event_success(mock_post):
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"msg": "received"}
+    mock_post.return_value = mock_response
+
+    config = {
+        "crm_type": "webhook",
+        "webhook_url": "https://webhook.site/test",
+        "headers": {"Authorization": "Bearer key"}
+    }
+    appointment = {
+        "nome": "Test Lead",
+        "email": "test@lead.com",
+        "numero": "+5548996027108",
+        "canal": "whats",
+        "data_agendamento": "2026-06-18T18:00:00Z"
+    }
+
+    res = await send_crm_event("client-a", appointment, config)
+    assert res["status"] == "success"
+    assert res["status_code"] == 200
+    assert res["response"] == {"msg": "received"}
+    mock_post.assert_called_once()
+    
+    kwargs = mock_post.call_args[1]
+    assert kwargs["headers"]["Authorization"] == "Bearer key"
+    assert kwargs["json"]["lead"]["nome"] == "Test Lead"
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_send_crm_event_error(mock_post):
+    mock_response = MagicMock()
+    mock_response.status_code = 500
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "Error", request=MagicMock(), response=mock_response
+    )
+    mock_post.return_value = mock_response
+
+    config = {
+        "crm_type": "webhook",
+        "webhook_url": "https://webhook.site/test"
+    }
+    
+    with pytest.raises(httpx.HTTPStatusError):
+        await send_crm_event("client-a", {}, config)
+
+@pytest.mark.asyncio
+@patch("worker.get_supabase_client")
+@patch("worker.get_client_config")
+@patch("worker.get_google_calendar_service")
+@patch("worker.send_crm_event")
+@patch("worker.update_workflow_status")
+async def test_schedule_appointment_job_crm_integration(
+    mock_update_status, mock_send_crm, mock_calendar, mock_config, mock_supabase
+):
+    # Setup mocks
+    mock_supabase_client = MagicMock()
+    mock_supabase.return_value = mock_supabase_client
+    
+    # Simula resposta do insert/update do Supabase para workflow_step_executions
+    mock_supabase_client.table().insert().execute.return_value = MagicMock(data=[{"id": "step-id-123"}])
+    mock_supabase_client.table().update().execute.return_value = MagicMock(data=[{"id": "step-id-123"}])
+    
+    mock_config.return_value = {
+        "google_calendar_id": "cal-123",
+        "zapi_instance_id": None,  # sem whatsapp para simplificar
+        "crm_config": {
+            "crm_type": "webhook",
+            "webhook_url": "https://crm.test/webhook"
+        }
+    }
+    
+    # Mock Google Calendar Event creation
+    mock_service = MagicMock()
+    mock_calendar.return_value = mock_service
+    mock_service.events().insert().execute.return_value = {"id": "event-123", "hangoutLink": "https://meet.com/abc"}
+    
+    # Mock send_crm_event response
+    mock_send_crm.return_value = {"status": "success", "status_code": 200}
+    
+    appointment_data = {
+        "nome": "Lead Teste",
+        "email": "lead@teste.com",
+        "numero": "+5548996027108",
+        "canal": "whats",
+        "data_agendamento": "2026-06-18T18:00:00-03:00",
+        "resumo": "Quer automação"
+    }
+    
+    # Executa o job do ARQ
+    result = await schedule_appointment_job(
+        ctx={},
+        client_id="cliente-teste",
+        execution_id=str(uuid.uuid4()),
+        appointment_data=appointment_data
+    )
+    
+    assert result == "Scheduled successfully"
+    # Verifica que tentou enviar para o CRM
+    mock_send_crm.assert_called_once()
+    
+    # Verifica que inseriu os registros correspondentes no Supabase
+    # Deve conter a chamada do step scheduling_workflow_send_to_crm
+    calls = mock_supabase_client.table().insert.call_args_list
+    step_names = [call[0][0].get("step_name") for call in calls if call[0] and isinstance(call[0][0], dict)]
+    assert "scheduling_workflow_send_to_crm" in step_names
+
+
 

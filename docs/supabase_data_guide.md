@@ -7,19 +7,27 @@
 
 ## 1. Mapa Geral do Banco
 
-O banco possui **três camadas lógicas** de tabelas:
+O projeto utiliza uma arquitetura **Multi-Tenant** dividida em duas bases de dados: o **Supabase Master** (centralizado) e o **Supabase do Cliente** (um banco isolado para cada tenant).
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
+│  SUPABASE MASTER (Central)                                  │
+│  client_configurations                                      │
+└─────────────────────────────────────────────────────────────┘
+                               │
+                               ▼ (Mapeamento de Tenant)
+┌─────────────────────────────────────────────────────────────┐
+│  SUPABASE DO CLIENTE (Ambiente Isolado por Cliente)         │
+│                                                             │
 │  CAMADA DE RASTREABILIDADE (EDW) — Padrão Mestre-Detalhe   │
 │  workflow_executions  ←─────  workflow_step_executions      │
 │  model_executions                                           │
-├─────────────────────────────────────────────────────────────┤
+│                                                             │
 │  CAMADA DE DADOS DO NEGÓCIO (Fonte de Dados dos Modelos)   │
+│  agendamentos                                               │
 │  Retell_calls_Mindflow    Leads_Mindflow                    │
 │  Prompts                  Comercial_Mindflow                │
-│  Retell_Leads_Midflow                                       │
-├─────────────────────────────────────────────────────────────┤
+│                                                             │
 │  CAMADA DE REGRAS / CONTROLE                               │
 │  Blacklist_Mindflow    Blacklist_Email                      │
 │  Buffer                documents_fil                        │
@@ -27,74 +35,55 @@ O banco possui **três camadas lógicas** de tabelas:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Diagrama de relacionamentos
+---
 
-```mermaid
-erDiagram
-    workflow_executions {
-        uuid id PK
-        varchar workflow_name
-        varchar status
-        jsonb input_data
-        jsonb output_data
-        text error_details
-        timestamptz started_at
-        timestamptz completed_at
-    }
+## 2. Supabase Master (Central)
 
-    workflow_step_executions {
-        uuid id PK
-        uuid execution_id FK
-        varchar step_name
-        varchar status
-        int attempt
-        jsonb input_data
-        jsonb output_data
-        text error_details
-        timestamptz started_at
-        timestamptz completed_at
-    }
+Gerencia a configuração global dos clientes cadastrados e credenciais de integração.
 
-    model_executions {
-        uuid id PK
-        text model_id
-        text to_number
-        float8 ls_probabilidade
-        text ls_decisao
-        int4 tp_horario_escolhido
-        bool is_exploration
-    }
+### 2.1 `client_configurations` — Cadastro de Clientes
 
-    Retell_calls_Mindflow {
-        bigint id PK
-        text Nome
-        text to_number
-        text disconnection_reason
-        text call_id
-        text agent_id
-        timestamptz created_at
-    }
+**Propósito:** Contém as credenciais de conexão ao Supabase individual do cliente, agendas do Google Calendar, WhatsApp (Z-API) e integrações de CRM.
 
-    Leads_Mindflow {
-        bigint id PK
-        text Nome
-        text Numero
-        text Email
-        text Etapa_CRM
-    }
-
-    Prompts {
-        bigint id PK
-        text Prompt_Text
-        text Pormpt_Name
-    }
-
-    workflow_executions ||--o{ workflow_step_executions : "tem N steps"
-```
+| Coluna | Tipo | Obrigatório | Descrição |
+|---|---|---|---|
+| `client_id` | `text` | ✅ | PK — Identificador único do cliente (ex: `cliente-a`). |
+| `client_name` | `text` | ✅ | Nome amigável do cliente. |
+| `supabase_url` | `text` | ✅ | Endpoint HTTP do Supabase privado do cliente. |
+| `supabase_service_key` | `text` | ✅ | Chave privada service_role para escritas administrativas. |
+| `supabase_anon_key` | `text` | ✅ | Chave anônima pública do Supabase do cliente. |
+| `google_calendar_id` | `text` | ✅ | ID da agenda do cliente no Google Calendar. |
+| `zapi_instance_id` | `text` | ❌ | ID da instância do WhatsApp (Z-API). |
+| `zapi_client_token` | `text` | ❌ | Token de autenticação da Z-API. |
+| `zapi_group_id` | `text` | ❌ | ID do grupo do WhatsApp para notificações internas. |
+| `crm_config` | `jsonb` | ❌ | Configurações do CRM (Webhook). Ex: `{ "crm_type": "webhook", "webhook_url": "...", "headers": { "Authorization": "Bearer token" } }`. |
 
 ---
 
-## 2. Tabelas de Rastreabilidade EDW
+## 3. Supabase do Cliente (Ambientes Isolados)
+
+Cada cliente possui um banco isolado contendo a estrutura abaixo.
+
+### 3.1 `agendamentos` — Eventos de Reuniões
+
+Registra os agendamentos efetuados. Possui RLS habilitado para inserção pública.
+- `id` (UUID, PK): Gerado automaticamente.
+- `created_at` (TIMESTAMPTZ): Data de registro do agendamento (UTC).
+- `nome` (TEXT): Nome do lead.
+- `email` (TEXT): E-mail do lead.
+- `numero` (TEXT): Telefone no formato E.164 (`+55...`).
+- `canal` (TEXT): Canal de origem (`whats` ou `ligacao`).
+- `data_agendamento` (TIMESTAMPTZ): Data e hora da reunião (UTC).
+- `status` (TEXT): Estado do agendamento (`agendado`, `cancelado`, `realizado`).
+- `detalhes` (TEXT): Resumo ou anotações geradas pelo agente.
+- `google_event_id` (TEXT): ID do evento no Google Calendar.
+- `calendar_id` (TEXT): ID da agenda utilizada.
+- `execution_id` (UUID): ID da execução do workflow para rastreabilidade.
+- `agent_id` (TEXT): ID do agente AI que efetuou o agendamento.
+
+---
+
+## 4. Tabelas de Rastreabilidade EDW
 
 > Estas são as tabelas mais críticas. **Todo workflow obrigatoriamente escreve nelas.**
 

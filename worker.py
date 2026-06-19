@@ -7,6 +7,7 @@ from arq.connections import RedisSettings
 from config import settings, get_client_config, get_supabase_client, get_google_calendar_service
 from utils.datetime_helpers import parse_iso_to_br
 from utils.tracing import update_workflow_status, run_step_with_retry
+from utils.crm import send_crm_event
 
 async def schedule_appointment_job(ctx: Dict[str, Any], client_id: str, execution_id: str, appointment_data: Dict[str, Any]) -> str:
     """
@@ -160,11 +161,43 @@ async def schedule_appointment_job(ctx: Dict[str, Any], client_id: str, executio
                 input_data=zapi_payload
             )
 
+        # Passo 5: Envio de evento de agendamento para o CRM (Webhook) se configurado
+        crm_config = config.get("crm_config")
+        crm_appointment_data = {
+            **appointment_record,
+            "meet_link": meet_link,
+            "appointment_id": appointment.get("id")
+        }
+        
+        async def send_to_crm_step():
+            return await send_crm_event(
+                client_id=client_id,
+                appointment_data=crm_appointment_data,
+                crm_config=crm_config
+            )
+            
+        crm_input_log = {
+            "client_id": client_id,
+            "crm_config": {
+                "crm_type": crm_config.get("crm_type") if crm_config else None,
+                "webhook_url": crm_config.get("webhook_url") if crm_config else None
+            }
+        }
+        
+        crm_result = await run_step_with_retry(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            step_name="scheduling_workflow_send_to_crm",
+            worker_func=send_to_crm_step,
+            input_data=crm_input_log
+        )
+
         # Atualizar status mestre para SUCCESS
         output_data = {
             "google_event_id": google_event_id,
             "meet_link": meet_link,
             "appointment_id": appointment.get("id"),
+            "crm_integration": crm_result,
             "status": "scheduled_successfully"
         }
         await update_workflow_status(

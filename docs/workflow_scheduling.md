@@ -70,6 +70,17 @@ Abaixo estão os nós de processamento assíncrono que compõem o `scheduling_wo
 - **Output**:
   - `zapi_message_id`: `str`
 
+### 2.6 `scheduling_workflow_send_to_crm`
+- **O que faz**: Se o cliente possuir configuração de CRM ativa (`crm_config`), envia um evento padronizado contendo dados do lead e da reunião para a URL configurada do Webhook.
+- **Input**:
+  - `client_id`: `str`
+  - `crm_config`: `dict`
+  - `appointment_data`: `dict`
+- **Output**:
+  - `status`: `str` ('success' | 'skipped')
+  - `status_code`: `int` (opcional)
+  - `response`: `dict` (opcional)
+
 ---
 
 ## 3. Tratamento de Timezone e Datas

@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: schedule_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Sobrescreve o REDIS_URL para apontar para o container do Redis interno
+      - REDIS_URL=redis://schedule_redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    build: .
+    container_name: schedule_worker
+    command: arq worker.WorkerSettings
+    env_file:
+      - .env
+    environment:
+      # O worker também precisa da mesma conexão ao Redis
+      - REDIS_URL=redis://schedule_redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: schedule_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:

@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS client_configurations (
     zapi_instance_id TEXT,
     zapi_client_token TEXT,
     zapi_group_id TEXT,
+    crm_config JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

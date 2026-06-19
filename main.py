@@ -10,7 +10,7 @@ from arq.connections import RedisSettings
 from config import settings, get_client_config, get_supabase_client, get_google_calendar_service
 from schemas import AgendarReuniaoRequest, WebhookResponse, VerificaAgendaRequest, VerificaAgendaResponse, SlotDisponibilidade
 from utils.tracing import start_workflow_execution
-from utils.datetime_helpers import parse_iso_to_br, is_dia_util, get_dia_semana_pt
+from utils.availability import check_availability_internal
 
 app = FastAPI(
     title="Mindflow Scheduling Service",
@@ -118,77 +118,15 @@ async def schedule_appointment(payload: AgendarReuniaoRequest):
 )
 async def check_availability(payload: VerificaAgendaRequest):
     """
-    Consulta de forma síncrona e concorrente (asyncio.gather) a disponibilidade 
-    de slots na agenda compartilhada do cliente.
+    Consulta de forma síncrona e concorrente a disponibilidade 
+    de slots na agenda compartilhada do cliente, aplicando filtros de feriados e fins de semana.
     """
     try:
-        config = get_client_config(payload.client_id)
-        calendar_id = config["google_calendar_id"]
+        return await check_availability_internal(payload.client_id, payload.data_inicial, payload.data_final)
     except ValueError as ve:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
-        
-    calendar_service = get_google_calendar_service()
-    
-    # Validações iniciais de fuso
-    data_inicial_br = parse_iso_to_br(payload.data_inicial)
-    data_final_br = parse_iso_to_br(payload.data_final)
-    
-    # Fatia o intervalo em slots de 1 hora
-    slots = []
-    current_time = data_inicial_br
-    while current_time < data_final_br:
-        slot_end = current_time + timedelta(hours=1)
-        if slot_end <= data_final_br:
-            slots.append((current_time, slot_end))
-        current_time = slot_end
-        
-    if not slots:
-        return VerificaAgendaResponse(
-            client_id=payload.client_id,
-            disponivel=False,
-            slots=[]
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Falha ao consultar disponibilidade: {str(e)}"
         )
-
-    # Função assíncrona executora para consultar a API FreeBusy do Google Calendar para cada slot
-    async def query_freebusy_slot(start: datetime, end: datetime) -> SlotDisponibilidade:
-        # Converte para formato ISO 8601 exigido pela API do Google Calendar (com offset UTC)
-        body = {
-            "timeMin": start.isoformat(),
-            "timeMax": end.isoformat(),
-            "items": [{"id": calendar_id}]
-        }
-        
-        # Como o google-api-python-client é síncrono e bloqueante, rodamos no threadpool
-        loop = asyncio.get_running_loop()
-        try:
-            # Consulta a disponibilidade no calendar do Google
-            fb_response = await loop.run_in_executor(
-                None,
-                lambda: calendar_service.freebusy().query(body=body).execute()
-            )
-            
-            # Verifica se há conflito de compromissos no slot específico
-            busy_events = fb_response.get("calendars", {}).get(calendar_id, {}).get("busy", [])
-            # Slot livre = não há eventos ocupados no intervalo
-            is_available = len(busy_events) == 0
-            
-            # Também verifica se não cai em final de semana
-            if not is_dia_util(start):
-                is_available = False
-                
-            return SlotDisponibilidade(data=start, available=is_available)
-        except Exception as e:
-            # Em caso de erro na API, consideramos indisponível por segurança
-            print(f"Erro ao consultar FreeBusy para slot {start}: {e}")
-            return SlotDisponibilidade(data=start, available=False)
-
-    # Execução concorrente de todas as consultas (asyncio.gather) para otimização de latência
-    slots_results = await asyncio.gather(*(query_freebusy_slot(s, e) for s, e in slots))
-    
-    any_available = any(s.available for s in slots_results)
-    
-    return VerificaAgendaResponse(
-        client_id=payload.client_id,
-        disponivel=any_available,
-        slots=slots_results
-    )

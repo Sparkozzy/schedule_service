@@ -102,3 +102,128 @@ def test_schedule_endpoint_authorized(mock_redis, mock_sub, mock_config):
     assert data["status"] == "Accepted"
     assert "execution_id" in data
     mock_redis.enqueue_job.assert_called_once()
+
+# 4. Testes de Disponibilidade (Finais de Semana e Feriados)
+@patch("utils.availability.get_client_config")
+@patch("utils.availability.get_google_calendar_service")
+def test_check_availability_weekend(mock_calendar, mock_config):
+    mock_config.return_value = {
+        "google_calendar_id": "cal-id-123"
+    }
+    
+    # 2026-06-21 é um domingo
+    payload = {
+        "client_id": "cliente-teste",
+        "data_inicial": "2026-06-21T10:00:00-03:00",
+        "data_final": "2026-06-21T11:00:00-03:00"
+    }
+    
+    response = client.post(
+        "/webhook/check-availability",
+        headers={"Authorization": "Bearer test-token"},
+        json=payload
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["disponivel"] is False
+    assert len(data["slots"]) == 1
+    assert data["slots"][0]["available"] is False
+    assert "fim de semana" in data["slots"][0]["reason"]
+    
+    # Verifica que não chamou a API do Google Calendar para FreeBusy
+    mock_calendar.return_value.freebusy.query.assert_not_called()
+
+@patch("utils.availability.get_client_config")
+@patch("utils.availability.get_google_calendar_service")
+def test_check_availability_holiday(mock_calendar, mock_config):
+    mock_config.return_value = {
+        "google_calendar_id": "cal-id-123"
+    }
+    
+    # Mock do retorno dos Feriados Nacionais (Google Calendar list events)
+    mock_service = MagicMock()
+    mock_calendar.return_value = mock_service
+    mock_service.events().list().execute.return_value = {
+        "items": [
+            {
+                "summary": "Dia de Teste Fictício",
+                "start": {"date": "2026-06-18"}
+            }
+        ]
+    }
+    
+    # 2026-06-18T10:00:00-03:00 (quinta-feira, mas mockamos como feriado)
+    payload = {
+        "client_id": "cliente-teste",
+        "data_inicial": "2026-06-18T10:00:00-03:00",
+        "data_final": "2026-06-18T11:00:00-03:00"
+    }
+    
+    response = client.post(
+        "/webhook/check-availability",
+        headers={"Authorization": "Bearer test-token"},
+        json=payload
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["disponivel"] is False
+    assert len(data["slots"]) == 1
+    assert data["slots"][0]["available"] is False
+    assert "feriado" in data["slots"][0]["reason"]
+    assert "Dia de Teste Fictício" in data["slots"][0]["reason"]
+    
+    # Verifica que não chamou FreeBusy porque foi bloqueado antes por ser feriado
+    mock_service.freebusy.query.assert_not_called()
+
+@patch("utils.availability.get_client_config")
+@patch("utils.availability.get_google_calendar_service")
+def test_check_availability_available(mock_calendar, mock_config):
+    mock_config.return_value = {
+        "google_calendar_id": "cal-id-123"
+    }
+    
+    mock_service = MagicMock()
+    mock_calendar.return_value = mock_service
+    # Sem feriados no período
+    mock_service.events().list().execute.return_value = {"items": []}
+    # FreeBusy retorna ocupado vazio (significa que está livre)
+    mock_service.freebusy().query().execute.return_value = {
+        "calendars": {
+            "cal-id-123": {
+                "busy": []
+            }
+        }
+    }
+    
+    # 2026-06-18T10:00:00-03:00 (quinta-feira, dia útil, sem feriado)
+    payload = {
+        "client_id": "cliente-teste",
+        "data_inicial": "2026-06-18T10:00:00-03:00",
+        "data_final": "2026-06-18T11:00:00-03:00"
+    }
+    
+    response = client.post(
+        "/webhook/check-availability",
+        headers={"Authorization": "Bearer test-token"},
+        json=payload
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["disponivel"] is True
+    assert len(data["slots"]) == 1
+    assert data["slots"][0]["available"] is True
+    assert data["slots"][0]["reason"] is None
+    
+    # Verifica que chamou a API FreeBusy pois o dia é útil e sem feriados
+    mock_service.freebusy().query.assert_any_call(
+        body={
+            "timeMin": "2026-06-18T10:00:00-03:00",
+            "timeMax": "2026-06-18T11:00:00-03:00",
+            "items": [{"id": "cal-id-123"}]
+        }
+    )
+
+

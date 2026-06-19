@@ -80,3 +80,18 @@ Em conformidade com [conventions.md](file:///home/ryanf/Schedule_service/docs/co
   client_cache = {} # Mapeia client_id -> SupabaseClient
   ```
 - O Google Calendar API Client é configurado uma única vez usando as credenciais de `ryanferrari@iatize-ia.com`, permitindo acesso de leitura/escrita a qualquer `calendar_id` configurado e compartilhado nas tabelas de clientes.
+
+---
+
+## 4. Servidor MCP (Model Context Protocol)
+
+Para permitir a integração direta com agentes de inteligência artificial externos ao ambiente local, o projeto expõe uma interface MCP implementada com **FastMCP** no arquivo [mcp_server.py](file:///home/ryanf/Schedule_service/mcp_server.py).
+
+### 4.1 Segurança e Transporte
+- **Transporte SSE (Server-Sent Events):** O servidor FastMCP é montado sobre uma aplicação FastAPI e exposto via protocolo HTTP/SSE nos endpoints `/sse` e `/messages/`.
+- **Autenticação:** O middleware `MCPAuthMiddleware` protege as rotas MCP, validando o token configurado em `API_BEARER_TOKEN` (tanto via cabeçalho `Authorization: Bearer <token>` quanto via query parameter `?token=...`).
+
+### 4.2 Ferramentas Expostas (Tools)
+- `check_availability`: Wrapper de `check_availability_internal`. Avalia se um slot de 1 hora cai em fim de semana ou feriado antes de consultar a agenda do Google Calendar, fornecendo um motivo detalhado em caso de indisponibilidade.
+- `schedule_appointment`: Valida o tenant, registra o status da execução (EDW) no banco Supabase do cliente e insere a solicitação de agendamento na fila do Redis para ser processada assincronamente pelo worker.
+

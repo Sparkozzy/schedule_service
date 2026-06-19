@@ -49,6 +49,8 @@ class VerificaAgendaRequest(BaseModel):
 class SlotDisponibilidade(BaseModel):
     data: datetime
     available: bool
+    reason: Optional[str] = None
+
 
 class VerificaAgendaResponse(BaseModel):
     client_id: str

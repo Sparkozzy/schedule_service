@@ -94,4 +94,6 @@ Para permitir a integração direta com agentes de inteligência artificial exte
 ### 4.2 Ferramentas Expostas (Tools)
 - `check_availability`: Wrapper de `check_availability_internal`. Avalia se um slot de 1 hora cai em fim de semana ou feriado antes de consultar a agenda do Google Calendar, fornecendo um motivo detalhado em caso de indisponibilidade.
 - `schedule_appointment`: Valida o tenant, registra o status da execução (EDW) no banco Supabase do cliente e insere a solicitação de agendamento na fila do Redis para ser processada assincronamente pelo worker.
+- `send_whatsapp_message`: Normaliza o número de telefone em Python, obtém as credenciais Z-API no Supabase Master e efetua o envio da mensagem de texto de follow-up diretamente para o lead via Z-API, com rastreabilidade EDW sob o workflow `mcp_ligawhats`.
+
 

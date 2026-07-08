@@ -7,3 +7,5 @@ __pycache__/
 .vscode/
 .idea/
 *.log
+docs/server_route.md
+

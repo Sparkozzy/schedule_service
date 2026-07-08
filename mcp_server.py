@@ -21,24 +21,55 @@ from utils.tracing import start_workflow_execution, update_workflow_status, run_
 from utils.availability import check_availability_internal
 from utils.phone import normalize_phone_to_12_digits
 
-# 1. Middleware de Autenticação para proteger os endpoints MCP externos
-class MCPAuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Valida o token apenas nas rotas do protocolo MCP
-        if request.url.path in ("/sse", "/messages"):
-            auth_header = request.headers.get("Authorization")
+# 1. Middleware de Autenticação para proteger os endpoints MCP externos (usando ASGI puro para evitar bug de StreamingResponse do BaseHTTPMiddleware)
+from urllib.parse import parse_qs
+
+class MCPAuthMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if path in ("/sse", "/messages"):
+            # Obter cabeçalhos
+            headers = dict(scope.get("headers", []))
+            auth_header = headers.get(b"authorization", b"").decode("utf-8")
             token = None
             if auth_header and auth_header.startswith("Bearer "):
                 token = auth_header.split(" ")[1]
+            
             if not token:
-                token = request.query_params.get("token")
-                
+                # Obter parâmetros de consulta (query parameters)
+                query_string = scope.get("query_string", b"").decode("utf-8")
+                params = parse_qs(query_string)
+                token_list = params.get("token")
+                if token_list:
+                    token = token_list[0]
+
             if not token or token != settings.API_BEARER_TOKEN:
-                return JSONResponse(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={"detail": "Não autorizado. Token MCP inválido ou ausente."}
-                )
-        return await call_next(request)
+                # Retorna 401 Unauthorized diretamente
+                response_body = b'{"detail": "N\xc3\xa3o autorizado. Token MCP inv\xc3\xa1lido ou ausente."}'
+                await send({
+                    "type": "http.response.start",
+                    "status": status.HTTP_401_UNAUTHORIZED,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(response_body)).encode("utf-8"))
+                    ]
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": response_body,
+                    "more_body": False
+                })
+                return
+
+        await self.app(scope, receive, send)
+
 
 # 2. Gerenciador de ciclo de vida (lifespan) do FastMCP para instanciar o pool do Redis/ARQ
 @asynccontextmanager

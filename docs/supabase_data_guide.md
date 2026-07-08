@@ -54,7 +54,8 @@ Gerencia a configuração global dos clientes cadastrados e credenciais de integ
 | `supabase_anon_key` | `text` | ✅ | Chave anônima pública do Supabase do cliente. |
 | `google_calendar_id` | `text` | ✅ | ID da agenda do cliente no Google Calendar. |
 | `zapi_instance_id` | `text` | ❌ | ID da instância do WhatsApp (Z-API). |
-| `zapi_client_token` | `text` | ❌ | Token de autenticação da Z-API. |
+| `zapi_client_token` | `text` | ❌ | Token de autenticação da Z-API (usado na URL). |
+| `zapi_security_token` | `text` | ❌ | Token de segurança da Z-API (enviado no header Client-Token). |
 | `zapi_group_id` | `text` | ❌ | ID do grupo do WhatsApp para notificações internas. |
 | `crm_config` | `jsonb` | ❌ | Configurações do CRM (Webhook). Ex: `{ "crm_type": "webhook", "webhook_url": "...", "headers": { "Authorization": "Bearer token" } }`. |
 

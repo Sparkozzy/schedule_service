@@ -17,7 +17,8 @@ Para integrar o novo cliente no fluxo de execução, insira um registro na tabel
 | **`supabase_anon_key`** | `TEXT` | **Sim** | Chave pública (`anon`) para acesso restrito. | **Painel do Supabase do Cliente:** Vá em *Project Settings* > *API* > *Project API Keys* > Copie o token de **`anon` / `public`**. |
 | **`google_calendar_id`** | `TEXT` | **Sim** | ID da agenda do Google Calendar onde as reuniões serão agendadas. | **Google Calendar do Cliente:** Vá nas configurações da agenda em *Configurações e Compartilhamento* > *Integrar Agenda* > Copie o **ID da agenda** (pode ser o e-mail do cliente ou um hash como `xyz@group.calendar.google.com`). |
 | **`zapi_instance_id`** | `TEXT` | Não (Opcional) | ID da instância do WhatsApp contratada na Z-API para notificações. | **Painel da Z-API:** ID da instância configurada para disparos de WhatsApp do cliente. |
-| **`zapi_client_token`** | `TEXT` | Não (Opcional) | Token de segurança da instância Z-API. | **Painel da Z-API:** Token de segurança gerado para a instância correspondente. |
+| **`zapi_client_token`** | `TEXT` | Não (Opcional) | Token de autenticação da instância Z-API (usado na URL). | **Painel da Z-API:** Token de segurança gerado para a instância correspondente. |
+| **`zapi_security_token`** | `TEXT` | Não (Opcional) | Token de segurança da instância Z-API (enviado via header). | **Painel da Z-API:** Token de segurança/client-token gerado pela Z-API. |
 | **`zapi_group_id`** | `TEXT` | Não (Opcional) | ID do grupo do WhatsApp onde as notificações internas de agendamento serão enviadas. | Obtido executando um fetch de grupos via Z-API ou coletando o ID do grupo criado para o time. |
 
 ---
@@ -213,6 +214,7 @@ INSERT INTO client_configurations (
     google_calendar_id,
     zapi_instance_id,
     zapi_client_token,
+    zapi_security_token,
     zapi_group_id
 ) VALUES (
     'nome-do-cliente',                     -- client_id (minúsculas, sem espaço)
@@ -223,6 +225,7 @@ INSERT INTO client_configurations (
     'calendar-id@group.calendar.google.com',-- google_calendar_id
     'zapi-instance-id-opcional',           -- zapi_instance_id (opcional)
     'zapi-token-opcional',                 -- zapi_client_token (opcional)
+    'zapi-security-token-opcional',        -- zapi_security_token (opcional)
     'group-id-opcional'                    -- zapi_group_id (opcional)
 );
 ```

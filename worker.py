@@ -130,6 +130,7 @@ async def schedule_appointment_job(ctx: Dict[str, Any], client_id: str, executio
         zapi_instance = config.get("zapi_instance_id")
         zapi_token = config.get("zapi_client_token")
         zapi_group = config.get("zapi_group_id")
+        zapi_security_token = config.get("zapi_security_token")
         
         if zapi_instance and zapi_token and zapi_group:
             message_text = (
@@ -147,9 +148,13 @@ async def schedule_appointment_job(ctx: Dict[str, Any], client_id: str, executio
                 "message": message_text
             }
             
+            zapi_headers = {}
+            if zapi_security_token:
+                zapi_headers["Client-Token"] = zapi_security_token
+                
             async def notify_whatsapp_step():
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    res = await client.post(zapi_url, json=zapi_payload)
+                    res = await client.post(zapi_url, json=zapi_payload, headers=zapi_headers)
                     res.raise_for_status()
                     return res.json()
                     

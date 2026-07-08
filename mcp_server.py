@@ -336,6 +336,7 @@ async def send_whatsapp_message(
         
         zapi_instance = config.get("zapi_instance_id")
         zapi_token = config.get("zapi_client_token")
+        zapi_security_token = config.get("zapi_security_token")
         
         if not zapi_instance or not zapi_token:
             raise ValueError(f"Configurações da Z-API ausentes no Supabase Master para o cliente '{client_id}'.")
@@ -346,10 +347,14 @@ async def send_whatsapp_message(
             "phone": normalized_phone,
             "message": message
         }
+        
+        zapi_headers = {}
+        if zapi_security_token:
+            zapi_headers["Client-Token"] = zapi_security_token
             
         async def send_whatsapp_step():
             async with httpx.AsyncClient(timeout=15.0) as client:
-                res = await client.post(zapi_url, json=zapi_payload)
+                res = await client.post(zapi_url, json=zapi_payload, headers=zapi_headers)
                 res.raise_for_status()
                 return res.json()
                 

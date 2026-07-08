@@ -43,7 +43,8 @@ async def test_send_whatsapp_message_success(mock_post, mock_config, mock_supaba
     # Mock das configurações da Z-API no Master
     mock_config.return_value = {
         "zapi_instance_id": "instance-abc",
-        "zapi_client_token": "token-xyz"
+        "zapi_client_token": "token-xyz",
+        "zapi_security_token": "token-sec-123"
     }
     
     # Mock do envio da Z-API
@@ -74,6 +75,9 @@ async def test_send_whatsapp_message_success(mock_post, mock_config, mock_supaba
     payload = mock_post.call_args[1]["json"]
     assert payload["phone"] == "554195252559"
     assert payload["message"] == "Olá lead!"
+    
+    headers = mock_post.call_args[1].get("headers", {})
+    assert headers.get("Client-Token") == "token-sec-123"
 
 
 @pytest.mark.asyncio
@@ -88,7 +92,8 @@ async def test_send_whatsapp_message_missing_config(mock_config, mock_supabase):
     # Configurações Z-API ausentes
     mock_config.return_value = {
         "zapi_instance_id": None,
-        "zapi_client_token": None
+        "zapi_client_token": None,
+        "zapi_security_token": None
     }
     
     res_str = await send_whatsapp_message(
@@ -114,7 +119,8 @@ async def test_send_whatsapp_message_http_error(mock_post, mock_config, mock_sup
     
     mock_config.return_value = {
         "zapi_instance_id": "instance-abc",
-        "zapi_client_token": "token-xyz"
+        "zapi_client_token": "token-xyz",
+        "zapi_security_token": "token-sec-123"
     }
     
     # Simula erro de status do HTTP POST

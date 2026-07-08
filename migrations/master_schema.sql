@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS client_configurations (
     google_calendar_id TEXT NOT NULL,
     zapi_instance_id TEXT,
     zapi_client_token TEXT,
+    zapi_security_token TEXT,
     zapi_group_id TEXT,
     crm_config JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

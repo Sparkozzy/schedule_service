@@ -49,7 +49,8 @@ def test_get_client_config(mock_master):
             "supabase_url": "https://teste.supabase.co",
             "supabase_service_key": "service-key",
             "supabase_anon_key": "anon-key",
-            "google_calendar_id": "cal-id-123"
+            "google_calendar_id": "cal-id-123",
+            "zapi_security_token": "mock-sec-token"
         }
     )
     
@@ -93,7 +94,7 @@ def test_schedule_endpoint_authorized(mock_redis, mock_sub, mock_config):
 
     response = client.post(
         "/webhook/schedule",
-        headers={"Authorization": "Bearer test-token"},
+        headers={"Authorization": f"Bearer {settings.API_BEARER_TOKEN}"},
         json=payload
     )
     
@@ -120,7 +121,7 @@ def test_check_availability_weekend(mock_calendar, mock_config):
     
     response = client.post(
         "/webhook/check-availability",
-        headers={"Authorization": "Bearer test-token"},
+        headers={"Authorization": f"Bearer {settings.API_BEARER_TOKEN}"},
         json=payload
     )
     
@@ -162,7 +163,7 @@ def test_check_availability_holiday(mock_calendar, mock_config):
     
     response = client.post(
         "/webhook/check-availability",
-        headers={"Authorization": "Bearer test-token"},
+        headers={"Authorization": f"Bearer {settings.API_BEARER_TOKEN}"},
         json=payload
     )
     
@@ -206,7 +207,7 @@ def test_check_availability_available(mock_calendar, mock_config):
     
     response = client.post(
         "/webhook/check-availability",
-        headers={"Authorization": "Bearer test-token"},
+        headers={"Authorization": f"Bearer {settings.API_BEARER_TOKEN}"},
         json=payload
     )
     
@@ -318,6 +319,7 @@ async def test_schedule_appointment_job_crm_integration(
     mock_config.return_value = {
         "google_calendar_id": "cal-123",
         "zapi_instance_id": None,  # sem whatsapp para simplificar
+        "zapi_security_token": None,
         "crm_config": {
             "crm_type": "webhook",
             "webhook_url": "https://crm.test/webhook"

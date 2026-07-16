@@ -50,7 +50,7 @@ def get_client_config(client_id: str) -> Dict[str, Any]:
         .maybe_single()\
         .execute()
     
-    if not response.data:
+    if response is None or not response.data:
         raise ValueError(f"Configuração para o cliente '{client_id}' não encontrada no Supabase Master.")
     
     return response.data

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException, status, Depends
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from arq import create_pool
@@ -80,6 +80,9 @@ async def mcp_lifespan(mcp_instance: FastMCP):
     redis_pool = None
     try:
         redis_pool = await create_pool(redis_settings)
+        # Sincroniza o pool do Redis com o módulo main para funcionamento dos webhooks
+        import main
+        main.redis_pool = redis_pool
     except Exception as e:
         print(f"Aviso: Não foi possível conectar ao Redis ({e}). A tool 'schedule_appointment' não estará totalmente operacional.")
     
@@ -408,6 +411,23 @@ app.add_middleware(MCPAuthMiddleware)
 @app.get("/health", status_code=status.HTTP_200_OK)
 async def health():
     return {"status": "ok", "service": "secure-mcp-server"}
+
+# Registra os webhooks clássicos de main.py
+import main
+
+app.post(
+    "/webhook/schedule",
+    response_model=main.WebhookResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(main.verify_token)]
+)(main.schedule_appointment)
+
+app.post(
+    "/webhook/check-availability",
+    response_model=main.VerificaAgendaResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(main.verify_token)]
+)(main.check_availability)
 
 # Monta a aplicação Starlette interna do FastMCP na raiz
 app.mount("/", mcp.sse_app())

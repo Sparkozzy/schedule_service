@@ -34,7 +34,8 @@ class MCPAuthMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in ("/sse", "/messages"):
+        normalized_path = path.rstrip("/")
+        if normalized_path in ("/sse", "/messages", "/mcp"):
             # Obter cabeçalhos
             headers = dict(scope.get("headers", []))
             auth_header = headers.get(b"authorization", b"").decode("utf-8")
@@ -399,10 +400,37 @@ async def send_whatsapp_message(
         return json.dumps({"error": f"Falha na execução do workflow: {str(err)}"}, indent=2)
 
 # 5. Aplicação FastAPI principal que protege e expõe os endpoints do FastMCP
+from starlette.routing import Route
+
+# Chamamos ambos para inicializar as rotas e o session manager
+sse_subapp = mcp.sse_app()
+http_subapp = mcp.streamable_http_app()
+
+@asynccontextmanager
+async def app_lifespan(app_instance: FastAPI):
+    # Inicializa o pool do Redis
+    redis_url = settings.REDIS_URL.replace("#", "%23")
+    redis_settings = RedisSettings.from_dsn(redis_url)
+    redis_pool = None
+    try:
+        redis_pool = await create_pool(redis_settings)
+        import main
+        main.redis_pool = redis_pool
+    except Exception as e:
+        print(f"Aviso: Não foi possível conectar ao Redis ({e}). A tool 'schedule_appointment' não estará totalmente operacional.")
+
+    # Inicializa o session manager do Streamable HTTP
+    async with mcp.session_manager.run():
+        yield {"redis_pool": redis_pool}
+
+    if redis_pool:
+        await redis_pool.close()
+
 app = FastAPI(
     title="Mindflow Secure MCP Service",
     description="Interface Model Context Protocol protegida para agentes externos de IA",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=app_lifespan
 )
 
 # Adiciona o middleware de proteção
@@ -429,8 +457,15 @@ app.post(
     dependencies=[Depends(main.verify_token)]
 )(main.check_availability)
 
-# Monta a aplicação Starlette interna do FastMCP na raiz
-app.mount("/", mcp.sse_app())
+# Adiciona as rotas de ambos os transportes ao FastAPI principal
+app.routes.extend(sse_subapp.routes)
+app.routes.extend(http_subapp.routes)
+
+# Adiciona rota de fallback POST /sse apontando para o endpoint do Streamable HTTP
+# para lidar com clientes (como Retell) que tentam enviar POST /sse diretamente
+app.routes.append(
+    Route("/sse", endpoint=http_subapp.routes[0].endpoint, methods=["POST"])
+)
 
 if __name__ == "__main__":
     # Se executado diretamente via linha de comando, roda em modo stdio (padrão)

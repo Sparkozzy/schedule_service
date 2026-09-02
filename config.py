@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # API Protection
     API_BEARER_TOKEN: str
     
+    # Integração pre_call_processing
+    PRE_CALL_PROCESSING_URL: str = "https://call-github.bkpxmb.easypanel.host"
+    PRE_CALL_PROCESSING_API_KEY: str = ""
+    
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

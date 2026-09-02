@@ -583,6 +583,195 @@ async def send_whatsapp_video(
         return json.dumps({"error": f"Falha na execução do workflow de envio de vídeo: {str(err)}"}, indent=2)
 
 
+@mcp.tool(
+    name="make_phone_call",
+    annotations={
+        "title": "Disparar Ligação Telefônica via IA (Retell AI)",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False
+    }
+)
+async def make_phone_call(
+    client_id: str,
+    numero: str,
+    nome: str,
+    agent_id: str,
+    prompt_id: str,
+    contexto: str,
+    email: Optional[str] = ".",
+    quando_ligar: Optional[str] = None,
+    empresa: Optional[str] = None,
+    segmento: Optional[str] = None,
+    from_number: Optional[str] = None,
+    execution_id: Optional[str] = None
+) -> str:
+    """
+    Dispara ou agenda uma ligação telefônica automatizada por voz (Retell AI) enviando uma requisição para o microserviço 'pre_call_processing'.
+    
+    ### QUANDO UTILIZAR ESTA FERRAMENTA:
+    Utilize esta ferramenta sempre que for necessário realizar um contato telefônico ou agendar uma chamada por voz com um lead/cliente.
+    
+    ### PARÂMETROS E REGRAS DE PREENCHIMENTO:
+    
+    - **client_id** (string, OBRIGATÓRIO):
+      Identificador único do cliente no Supabase Master (ex: 'cliente-a', 'mindflow').
+      
+    - **numero** (string, OBRIGATÓRIO):
+      Número de telefone do destinatário no formato internacional E.164.
+      **REGRA CRÍTICA**: Deve obrigatoriamente iniciar com o caractere '+' seguido do DDI e DDD (ex: '+5548996027108').
+      
+    - **nome** (string, OBRIGATÓRIO):
+      Nome completo do lead/paciente destinatário da chamada (ex: 'João Silva').
+      
+    - **agent_id** (string, OBRIGATÓRIO):
+      Identificador do agente de voz configurado na Retell AI (ex: 'agent_1e4cfa23e3910c557d82167949').
+      
+    - **prompt_id** (string, OBRIGATÓRIO):
+      Identificador do prompt/roteiro cadastrado na tabela 'Prompts' do Supabase (ex: '24' ou 'prompt_qualificacao').
+      
+    - **contexto** (string, OBRIGATÓRIO):
+      **CONTEÚDO CRÍTICO E OBRIGATÓRIO**: Deve conter a descrição completa do objetivo da chamada e todo o histórico/resumo recente da conversa.
+      É através deste campo que o agente de voz saberá exatamente com quem está falando, quais os pontos já discutidos e qual meta deve atingir durante a ligação.
+      
+    - **email** (string, OPCIONAL):
+      Endereço de e-mail do destinatário. Se não houver e-mail disponível, passar '.' (padrão é '.').
+      
+    - **quando_ligar** (string, OPCIONAL):
+      Data e hora em que a ligação deve ser realizada.
+      **REGRA DE FORMATO**: Deve ser uma string ISO 8601 contendo obrigatoriamente o offset de timezone (ex: '2026-08-25T14:30:00-03:00').
+      Se omitido ou nulo, a ligação será disparada imediatamente.
+      
+    - **empresa** (string, OPCIONAL):
+      Nome da empresa associada ao lead (ex: 'Tech Solutions').
+      
+    - **segmento** (string, OPCIONAL):
+      Segmento de atuação da empresa (ex: 'SaaS B2B').
+      
+    - **from_number** (string, OPCIONAL):
+      Número remetente cadastrado na plataforma de voz Retell AI para efetuar a chamada.
+      
+    - **execution_id** (string, OPCIONAL):
+      ID único de rastreabilidade (UUID string). Se não for fornecido, um novo UUID será gerado automaticamente.
+      
+    Returns:
+        JSON string contendo o resultado da requisição (status e execution_db_id no pre_call_processing) ou mensagem de erro detalhada.
+    """
+    import uuid
+    exec_uuid = None
+    if execution_id:
+        try:
+            exec_uuid = uuid.UUID(execution_id)
+        except ValueError:
+            pass
+    if not exec_uuid:
+        exec_uuid = uuid.uuid4()
+
+    try:
+        supabase_client = get_supabase_client(client_id)
+    except Exception as e:
+        return json.dumps({"error": f"Cliente '{client_id}' não configurado ou Supabase inválido: {str(e)}"}, indent=2)
+
+    api_key = settings.PRE_CALL_PROCESSING_API_KEY
+    if not api_key:
+        return json.dumps({"error": "Configuração PRE_CALL_PROCESSING_API_KEY ausente em variáveis de ambiente."}, indent=2)
+
+    input_data = {
+        "client_id": client_id,
+        "numero": numero,
+        "nome": nome,
+        "email": email,
+        "agent_id": agent_id,
+        "prompt_id": prompt_id,
+        "contexto": contexto,
+        "quando_ligar": quando_ligar,
+        "empresa": empresa,
+        "segmento": segmento,
+        "from_number": from_number,
+        "execution_id": str(exec_uuid)
+    }
+
+    try:
+        await start_workflow_execution(
+            supabase_client=supabase_client,
+            workflow_name="mcp_make_call",
+            input_data=input_data,
+            execution_id=exec_uuid
+        )
+        await update_workflow_status(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            status="RUNNING"
+        )
+    except Exception as e:
+        print(f"Aviso: Não foi possível registrar início do workflow EDW no Supabase ({e})")
+
+    try:
+        # Prepara payload no padrão do pre_call_processing
+        payload = {
+            "workflow_name": "mcp_make_call",
+            "execution_id": str(exec_uuid),
+            "numero": numero,
+            "nome": nome,
+            "email": email or ".",
+            "agent_id": agent_id,
+            "Prompt_id": prompt_id,
+            "quando_ligar": quando_ligar,
+            "empresa": empresa,
+            "segmento": segmento,
+            "contexto": contexto,
+            "from_number": from_number
+        }
+
+        target_url = f"{settings.PRE_CALL_PROCESSING_URL.rstrip('/')}/webhook"
+        headers = {
+            "X-API-Key": api_key,
+            "Content-Type": "application/json"
+        }
+
+        async def dispatch_call_step():
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(target_url, json=payload, headers=headers)
+                res.raise_for_status()
+                return res.json()
+
+        call_response = await run_step_with_retry(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            step_name="mcp_make_call_dispatch",
+            worker_func=dispatch_call_step,
+            input_data={
+                "url": target_url,
+                "payload": payload
+            }
+        )
+
+        try:
+            await update_workflow_status(
+                supabase_client=supabase_client,
+                execution_id=exec_uuid,
+                status="SUCCESS",
+                output_data=call_response
+            )
+        except Exception as e:
+            print(f"Aviso: Não foi possível atualizar status do workflow para SUCCESS no Supabase ({e})")
+
+        return json.dumps(call_response, indent=2)
+
+    except Exception as err:
+        try:
+            await update_workflow_status(
+                supabase_client=supabase_client,
+                execution_id=exec_uuid,
+                status="FAILED",
+                error_details=str(err)
+            )
+        except Exception as e:
+            print(f"Aviso: Não foi possível atualizar status do workflow para FAILED no Supabase ({e})")
+
+        return json.dumps({"error": f"Falha na execução da chamada telefônica via pre_call_processing: {str(err)}"}, indent=2)
+
+
 # 5. Aplicação FastAPI principal que protege e expõe os endpoints do FastMCP
 from starlette.routing import Route
 

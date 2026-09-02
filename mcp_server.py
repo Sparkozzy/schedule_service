@@ -399,6 +399,190 @@ async def send_whatsapp_message(
             
         return json.dumps({"error": f"Falha na execução do workflow: {str(err)}"}, indent=2)
 
+
+@mcp.tool(
+    name="send_whatsapp_video",
+    annotations={
+        "title": "Enviar Vídeo via WhatsApp com Descrição",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False
+    }
+)
+async def send_whatsapp_video(
+    client_id: str,
+    phone: str,
+    video: str,
+    caption: Optional[str] = "",
+    view_once: Optional[bool] = False,
+    message_id: Optional[str] = None,
+    delay_message: Optional[int] = None,
+    async_mode: Optional[bool] = False,
+    execution_id: Optional[str] = None,
+    agent_id: Optional[str] = None
+) -> str:
+    """
+    Envia um vídeo (link público ou Base64) com legenda/descrição opcional para um contato do WhatsApp via Z-API.
+    Executa a normalização do telefone e registra logs de auditoria no padrão EDW.
+    
+    Args:
+        client_id: ID do cliente cadastrado no Supabase Master (ex: 'cliente-a').
+        phone: Número do lead (ex: '+5541995252559' ou '554195252559').
+        video: Link público (URL) do vídeo hospedado na internet ou string Base64.
+        caption: Descrição/legenda em texto a ser exibida junto/embaixo do vídeo no WhatsApp.
+        view_once: Se verdadeiro, define como mensagem de visualização única.
+        message_id: ID da mensagem que se deseja responder.
+        delay_message: Delay em segundos (1 a 15) antes do envio.
+        async_mode: Se verdadeiro, a requisição da Z-API responderá imediatamente e processará em segundo plano.
+        execution_id: ID único de execução opcional para rastreabilidade (UUID string).
+        agent_id: ID opcional do agente de IA que originou o disparo.
+        
+    Returns:
+        JSON string contendo o resultado do envio (zaapId, messageId) ou erro.
+    """
+    import uuid
+    exec_uuid = None
+    if execution_id:
+        try:
+            exec_uuid = uuid.UUID(execution_id)
+        except ValueError:
+            pass
+    if not exec_uuid:
+        exec_uuid = uuid.uuid4()
+        
+    try:
+        supabase_client = get_supabase_client(client_id)
+    except Exception as e:
+        return json.dumps({"error": f"Cliente '{client_id}' não configurado ou Supabase inválido: {str(e)}"}, indent=2)
+        
+    input_data = {
+        "client_id": client_id,
+        "phone": phone,
+        "video": video,
+        "caption": caption,
+        "viewOnce": view_once,
+        "messageId": message_id,
+        "delayMessage": delay_message,
+        "async": async_mode,
+        "agent_id": agent_id,
+        "execution_id": str(exec_uuid)
+    }
+    
+    try:
+        await start_workflow_execution(
+            supabase_client=supabase_client,
+            workflow_name="mcp_send_video",
+            input_data=input_data,
+            execution_id=exec_uuid
+        )
+        await update_workflow_status(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            status="RUNNING"
+        )
+    except Exception as e:
+        print(f"Aviso: Não foi possível registrar início do workflow EDW no Supabase ({e})")
+        
+    try:
+        # Passo 1: Normalização do telefone em Python
+        async def normalize_phone_step():
+            return normalize_phone_to_12_digits(phone)
+            
+        normalized_phone = await run_step_with_retry(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            step_name="mcp_send_video_normalize_phone",
+            worker_func=normalize_phone_step,
+            input_data={"raw_phone": phone}
+        )
+        
+        if len(normalized_phone) != 12 or not normalized_phone.isdigit():
+            raise ValueError(f"Número normalizado inválido: '{normalized_phone}'. Deve ter exatamente 12 dígitos.")
+            
+        # Passo 2: Configuração Z-API
+        async def get_config_step():
+            return get_client_config(client_id)
+            
+        config = await run_step_with_retry(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            step_name="mcp_send_video_get_config",
+            worker_func=get_config_step,
+            input_data={"client_id": client_id}
+        )
+        
+        zapi_instance = config.get("zapi_instance_id")
+        zapi_token = config.get("zapi_client_token")
+        zapi_security_token = config.get("zapi_security_token")
+        
+        if not zapi_instance or not zapi_token:
+            raise ValueError(f"Configurações da Z-API ausentes no Supabase Master para o cliente '{client_id}'.")
+            
+        # Passo 3: Disparo de Vídeo via Z-API (/send-video)
+        zapi_url = f"https://api.z-api.io/instances/{zapi_instance}/token/{zapi_token}/send-video"
+        
+        zapi_payload = {
+            "phone": normalized_phone,
+            "video": video,
+            "caption": caption if caption is not None else "",
+            "viewOnce": bool(view_once)
+        }
+        if message_id:
+            zapi_payload["messageId"] = message_id
+        if delay_message is not None:
+            zapi_payload["delayMessage"] = delay_message
+        if async_mode:
+            zapi_payload["async"] = True
+
+        zapi_headers = {
+            "Content-Type": "application/json"
+        }
+        if zapi_security_token:
+            zapi_headers["Client-Token"] = zapi_security_token
+
+        async def send_video_step():
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(zapi_url, json=zapi_payload, headers=zapi_headers)
+                res.raise_for_status()
+                return res.json()
+
+        zapi_response = await run_step_with_retry(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            step_name="mcp_send_video_dispatch",
+            worker_func=send_video_step,
+            input_data={
+                "url": zapi_url,
+                "payload": zapi_payload
+            }
+        )
+
+        try:
+            await update_workflow_status(
+                supabase_client=supabase_client,
+                execution_id=exec_uuid,
+                status="SUCCESS",
+                output_data=zapi_response
+            )
+        except Exception as e:
+            print(f"Aviso: Não foi possível atualizar status do workflow para SUCCESS no Supabase ({e})")
+
+        return json.dumps(zapi_response, indent=2)
+
+    except Exception as err:
+        try:
+            await update_workflow_status(
+                supabase_client=supabase_client,
+                execution_id=exec_uuid,
+                status="FAILED",
+                error_details=str(err)
+            )
+        except Exception as e:
+            print(f"Aviso: Não foi possível atualizar status do workflow para FAILED no Supabase ({e})")
+
+        return json.dumps({"error": f"Falha na execução do workflow de envio de vídeo: {str(err)}"}, indent=2)
+
+
 # 5. Aplicação FastAPI principal que protege e expõe os endpoints do FastMCP
 from starlette.routing import Route
 
@@ -456,6 +640,14 @@ app.post(
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(main.verify_token)]
 )(main.check_availability)
+
+app.post(
+    "/webhook/send-video",
+    response_model=main.SendVideoResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(main.verify_token)]
+)(main.send_video)
+
 
 # Adiciona as rotas de ambos os transportes ao FastAPI principal
 app.routes.extend(sse_subapp.routes)

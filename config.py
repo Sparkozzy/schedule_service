@@ -75,12 +75,19 @@ def get_supabase_client(client_id: str, use_service_role: bool = True) -> Client
         
     return _supabase_client_cache[cache_key]
 
+_google_calendar_service = None
+
 # Instanciação do Cliente do Google Calendar
 def get_google_calendar_service():
     """
     Cria e retorna o serviço do Google Calendar API baseado na credencial de ryanferrari@iatize-ia.com.
     Tenta Service Account primeiro; se não configurado, cai para OAuth2 com Refresh Token.
+    Utiliza cache para evitar reinstanciar o cliente HTTP da API Google a cada chamada.
     """
+    global _google_calendar_service
+    if _google_calendar_service is not None:
+        return _google_calendar_service
+
     scopes = ["https://www.googleapis.com/auth/calendar"]
     creds = None
 
@@ -108,4 +115,5 @@ def get_google_calendar_service():
     if not creds:
         raise ValueError("Nenhuma credencial Google Calendar configurada em variáveis de ambiente (.env).")
         
-    return build("calendar", "v3", credentials=creds)
+    _google_calendar_service = build("calendar", "v3", credentials=creds)
+    return _google_calendar_service

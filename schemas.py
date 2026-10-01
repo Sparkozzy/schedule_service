@@ -77,3 +77,24 @@ class SendVideoResponse(BaseModel):
     id: Optional[str] = Field(None, description="ID de referência da mensagem")
     execution_id: UUID = Field(..., description="UUID único da execução EDW")
 
+
+# Payload para envio de documento (PDF) via Z-API
+class SendDocumentRequest(BaseModel):
+    client_id: str = Field(..., description="ID do cliente cadastrado no Master")
+    phone: str = Field(..., description="Telefone do destinatário (formato internacional ou DDI+DDD+número)")
+    document: str = Field(..., description="Link público (URL) do documento (PDF/DOCX/XLSX)")
+    extension: Optional[str] = Field("pdf", description="Extensão do arquivo sem ponto (ex: 'pdf', 'docx', 'xlsx')")
+    fileName: Optional[str] = Field(None, description="Nome do arquivo exibido no WhatsApp")
+    caption: Optional[str] = Field("", description="Descrição/legenda em texto a ser enviada junto com o documento")
+    messageId: Optional[str] = Field(None, description="ID da mensagem anterior a ser respondida, se houver")
+    delayMessage: Optional[int] = Field(None, description="Delay em segundos (1 a 15) antes do envio")
+    agent_id: Optional[str] = Field(None, description="ID do agente acionador para rastreamento EDW")
+
+
+class SendDocumentResponse(BaseModel):
+    zaapId: Optional[str] = Field(None, description="ID interno da mensagem no Z-API")
+    messageId: Optional[str] = Field(None, description="ID único da mensagem enviada no WhatsApp")
+    id: Optional[str] = Field(None, description="ID de referência da mensagem")
+    execution_id: UUID = Field(..., description="UUID único da execução EDW")
+
+

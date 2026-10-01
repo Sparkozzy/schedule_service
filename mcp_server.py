@@ -584,6 +584,191 @@ async def send_whatsapp_video(
 
 
 @mcp.tool(
+    name="send_whatsapp_document",
+    annotations={
+        "title": "Enviar Documento (PDF) via WhatsApp",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False
+    }
+)
+async def send_whatsapp_document(
+    client_id: str,
+    phone: str,
+    document_url: str,
+    extension: Optional[str] = "pdf",
+    file_name: Optional[str] = None,
+    caption: Optional[str] = "",
+    message_id: Optional[str] = None,
+    delay_message: Optional[int] = None,
+    execution_id: Optional[str] = None,
+    agent_id: Optional[str] = None
+) -> str:
+    """
+    Envia um documento (PDF, DOCX, XLSX, etc.) via WhatsApp usando a gateway Z-API através de um link/URL pública.
+    Executa a normalização do telefone e registra logs de auditoria no padrão EDW.
+    
+    Args:
+        client_id: ID do cliente cadastrado no Supabase Master (ex: 'cliente-a').
+        phone: Número do lead (ex: '+5541995252559' ou '554195252559').
+        document_url: Link público (HTTP/HTTPS) do documento a ser enviado.
+        extension: Extensão do arquivo (padrão 'pdf', podendo ser 'docx', 'xlsx', etc.).
+        file_name: Nome opcional do arquivo a ser exibido no WhatsApp (ex: 'Proposta_Comercial.pdf').
+        caption: Descrição/legenda opcional em texto acompanhando o documento.
+        message_id: ID da mensagem que se deseja responder.
+        delay_message: Delay em segundos (1 a 15) antes do envio.
+        execution_id: ID único de execução opcional para rastreabilidade (UUID string).
+        agent_id: ID opcional do agente de IA que originou o disparo.
+        
+    Returns:
+        JSON string contendo o resultado do envio (zaapId, messageId) ou erro.
+    """
+    import uuid
+    exec_uuid = None
+    if execution_id:
+        try:
+            exec_uuid = uuid.UUID(execution_id)
+        except ValueError:
+            pass
+    if not exec_uuid:
+        exec_uuid = uuid.uuid4()
+        
+    try:
+        supabase_client = get_supabase_client(client_id)
+    except Exception as e:
+        return json.dumps({"error": f"Cliente '{client_id}' não configurado ou Supabase inválido: {str(e)}"}, indent=2)
+        
+    ext = (extension or "pdf").lstrip(".")
+    
+    input_data = {
+        "client_id": client_id,
+        "phone": phone,
+        "document_url": document_url,
+        "extension": ext,
+        "fileName": file_name,
+        "caption": caption,
+        "messageId": message_id,
+        "delayMessage": delay_message,
+        "agent_id": agent_id,
+        "execution_id": str(exec_uuid)
+    }
+    
+    try:
+        await start_workflow_execution(
+            supabase_client=supabase_client,
+            workflow_name="mcp_send_document",
+            input_data=input_data,
+            execution_id=exec_uuid
+        )
+        await update_workflow_status(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            status="RUNNING"
+        )
+    except Exception as e:
+        print(f"Aviso: Não foi possível registrar início do workflow EDW no Supabase ({e})")
+        
+    try:
+        # Passo 1: Normalização do telefone em Python
+        async def normalize_phone_step():
+            return normalize_phone_to_12_digits(phone)
+            
+        normalized_phone = await run_step_with_retry(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            step_name="mcp_send_document_normalize_phone",
+            worker_func=normalize_phone_step,
+            input_data={"raw_phone": phone}
+        )
+        
+        if len(normalized_phone) != 12 or not normalized_phone.isdigit():
+            raise ValueError(f"Número normalizado inválido: '{normalized_phone}'. Deve ter exatamente 12 dígitos.")
+            
+        # Passo 2: Configuração Z-API
+        async def get_config_step():
+            return get_client_config(client_id)
+            
+        config = await run_step_with_retry(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            step_name="mcp_send_document_get_config",
+            worker_func=get_config_step,
+            input_data={"client_id": client_id}
+        )
+        
+        zapi_instance = config.get("zapi_instance_id")
+        zapi_token = config.get("zapi_client_token")
+        zapi_security_token = config.get("zapi_security_token")
+        
+        if not zapi_instance or not zapi_token:
+            raise ValueError(f"Configurações da Z-API ausentes no Supabase Master para o cliente '{client_id}'.")
+            
+        # Passo 3: Disparo do Documento via Z-API (/send-document/{extension})
+        zapi_url = f"https://api.z-api.io/instances/{zapi_instance}/token/{zapi_token}/send-document/{ext}"
+        
+        zapi_payload = {
+            "phone": normalized_phone,
+            "document": document_url
+        }
+        if file_name:
+            zapi_payload["fileName"] = file_name
+        if caption:
+            zapi_payload["caption"] = caption
+        if message_id:
+            zapi_payload["messageId"] = message_id
+        if delay_message is not None:
+            zapi_payload["delayMessage"] = delay_message
+
+        zapi_headers = {
+            "Content-Type": "application/json"
+        }
+        if zapi_security_token:
+            zapi_headers["Client-Token"] = zapi_security_token
+
+        async def send_document_step():
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(zapi_url, json=zapi_payload, headers=zapi_headers)
+                res.raise_for_status()
+                return res.json()
+
+        zapi_response = await run_step_with_retry(
+            supabase_client=supabase_client,
+            execution_id=exec_uuid,
+            step_name="mcp_send_document_dispatch",
+            worker_func=send_document_step,
+            input_data={
+                "url": zapi_url,
+                "payload": zapi_payload
+            }
+        )
+
+        try:
+            await update_workflow_status(
+                supabase_client=supabase_client,
+                execution_id=exec_uuid,
+                status="SUCCESS",
+                output_data=zapi_response
+            )
+        except Exception as e:
+            print(f"Aviso: Não foi possível atualizar status do workflow para SUCCESS no Supabase ({e})")
+
+        return json.dumps(zapi_response, indent=2)
+
+    except Exception as err:
+        try:
+            await update_workflow_status(
+                supabase_client=supabase_client,
+                execution_id=exec_uuid,
+                status="FAILED",
+                error_details=str(err)
+            )
+        except Exception as e:
+            print(f"Aviso: Não foi possível atualizar status do workflow para FAILED no Supabase ({e})")
+
+        return json.dumps({"error": f"Falha na execução do workflow de envio de documento: {str(err)}"}, indent=2)
+
+
+@mcp.tool(
     name="make_phone_call",
     annotations={
         "title": "Disparar Ligação Telefônica via IA (Retell AI)",

@@ -801,8 +801,8 @@ async def make_phone_call(
       Identificador único do cliente no Supabase Master (ex: 'cliente-a', 'mindflow').
       
     - **numero** (string, OBRIGATÓRIO):
-      Número de telefone do destinatário no formato internacional E.164.
-      **REGRA CRÍTICA**: Deve obrigatoriamente iniciar com o caractere '+' seguido do DDI e DDD (ex: '+5548996027108').
+      Número de telefone do destinatário.
+      **INSTRUÇÃO CRÍTICA PARA A LLM**: A ferramenta aceita números com ou sem o sinal de '+'. A própria tool irá higienizar e formatar o '+' automaticamente. **NUNCA peça ao lead para digitar o '+' ou reformatar o próprio telefone**; informe o número do remetente da sessão ou o número informado pelo lead diretamente.
       
     - **nome** (string, OBRIGATÓRIO):
       Nome completo do lead/paciente destinatário da chamada (ex: 'João Silva').
@@ -842,6 +842,12 @@ async def make_phone_call(
             pass
     if not exec_uuid:
         exec_uuid = uuid.uuid4()
+
+    # Higienização automática do número de telefone (garante '+' no início E.164)
+    if numero:
+        numero = numero.strip()
+        if not numero.startswith("+"):
+            numero = f"+{numero}"
 
     try:
         supabase_client = get_supabase_client(client_id)

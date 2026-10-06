@@ -91,3 +91,31 @@ async def test_make_phone_call_missing_api_key(mock_supabase):
     res = json.loads(res_str)
     assert "error" in res
     assert "PRE_CALL_PROCESSING_API_KEY" in res["error"]
+
+
+@pytest.mark.asyncio
+@patch("mcp_server.get_supabase_client")
+@patch("httpx.AsyncClient.post")
+async def test_make_phone_call_auto_prefix_plus(mock_post, mock_supabase):
+    mock_supabase_client = MagicMock()
+    mock_supabase.return_value = mock_supabase_client
+    mock_supabase_client.table().insert().execute.return_value = MagicMock(data=[{"id": "step-id-123"}])
+    mock_supabase_client.table().update().execute.return_value = MagicMock(data=[{"id": "step-id-123"}])
+
+    mock_response = MagicMock()
+    mock_response.status_code = 202
+    mock_response.json.return_value = {"status": "success", "execution_db_id": "b3f6c8d2"}
+    mock_post.return_value = mock_response
+
+    with patch("mcp_server.settings.PRE_CALL_PROCESSING_API_KEY", "key123"):
+        res_str = await make_phone_call(
+            client_id="cliente-alpha",
+            numero="5548996027108",  # Sem + no início
+            nome="Carlos Eduardo"
+        )
+
+    res = json.loads(res_str)
+    assert res["status"] == "success"
+    payload = mock_post.call_args[1]["json"]
+    assert payload["numero"] == "+5548996027108"  # Deve auto-adicionar +
+

@@ -781,13 +781,11 @@ async def make_phone_call(
     client_id: str,
     numero: str,
     nome: str,
-    agent_id: str,
-    prompt_id: str,
-    contexto: str,
+    agent_id: Optional[str] = None,
+    prompt_id: Optional[str] = None,
+    contexto: Optional[str] = None,
     email: Optional[str] = ".",
     quando_ligar: Optional[str] = None,
-    empresa: Optional[str] = None,
-    segmento: Optional[str] = None,
     from_number: Optional[str] = None,
     execution_id: Optional[str] = None
 ) -> str:
@@ -809,32 +807,25 @@ async def make_phone_call(
     - **nome** (string, OBRIGATÓRIO):
       Nome completo do lead/paciente destinatário da chamada (ex: 'João Silva').
       
-    - **agent_id** (string, OBRIGATÓRIO):
-      Identificador do agente de voz configurado na Retell AI (ex: 'agent_1e4cfa23e3910c557d82167949').
+    - **email** (string, OPCIONAL):
+      Endereço de e-mail do destinatário. Se não houver e-mail disponível, passar '.' ou string vazia (padrão é '.').
       
-    - **prompt_id** (string, OBRIGATÓRIO):
+    - **agent_id** (string, OPCIONAL):
+      Identificador do agente de voz configurado na Retell AI (ex: 'agent_1e4cfa23e3910c557d82167949'). Se omitido, o pre_call_processing usará o agente padrão do cliente.
+      
+    - **prompt_id** (string, OPCIONAL):
       Identificador do prompt/roteiro cadastrado na tabela 'Prompts' do Supabase (ex: '24' ou 'prompt_qualificacao').
       
-    - **contexto** (string, OBRIGATÓRIO):
-      **CONTEÚDO CRÍTICO E OBRIGATÓRIO**: Deve conter a descrição completa do objetivo da chamada e todo o histórico/resumo recente da conversa.
-      É através deste campo que o agente de voz saberá exatamente com quem está falando, quais os pontos já discutidos e qual meta deve atingir durante a ligação.
-      
-    - **email** (string, OPCIONAL):
-      Endereço de e-mail do destinatário. Se não houver e-mail disponível, passar '.' (padrão é '.').
+    - **contexto** (string, OPCIONAL):
+      Resumo dos pontos discutidos, perfil e desafios do lead para guiar a IA de voz durante a ligação.
       
     - **quando_ligar** (string, OPCIONAL):
       Data e hora em que a ligação deve ser realizada.
-      **REGRA DE FORMATO**: Deve ser uma string ISO 8601 contendo obrigatoriamente o offset de timezone (ex: '2026-08-25T14:30:00-03:00').
+      **REGRA DE FORMATO**: Deve ser uma string ISO 8601 contendo obrigatoriamente o offset de timezone (ex: '2026-10-06T18:00:00-03:00').
       Se omitido ou nulo, a ligação será disparada imediatamente.
       
-    - **empresa** (string, OPCIONAL):
-      Nome da empresa associada ao lead (ex: 'Tech Solutions').
-      
-    - **segmento** (string, OPCIONAL):
-      Segmento de atuação da empresa (ex: 'SaaS B2B').
-      
     - **from_number** (string, OPCIONAL):
-      Número remetente cadastrado na plataforma de voz Retell AI para efetuar a chamada.
+      Número remetente cadastrado na plataforma de voz Retell AI para efetuar a chamada (ex: '+5511999998888').
       
     - **execution_id** (string, OPCIONAL):
       ID único de rastreabilidade (UUID string). Se não for fornecido, um novo UUID será gerado automaticamente.
@@ -870,8 +861,6 @@ async def make_phone_call(
         "prompt_id": prompt_id,
         "contexto": contexto,
         "quando_ligar": quando_ligar,
-        "empresa": empresa,
-        "segmento": segmento,
         "from_number": from_number,
         "execution_id": str(exec_uuid)
     }
@@ -902,8 +891,6 @@ async def make_phone_call(
             "agent_id": agent_id,
             "Prompt_id": prompt_id,
             "quando_ligar": quando_ligar,
-            "empresa": empresa,
-            "segmento": segmento,
             "contexto": contexto,
             "from_number": from_number
         }

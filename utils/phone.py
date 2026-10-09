@@ -16,6 +16,10 @@ def normalize_phone_to_12_digits(phone: str) -> str:
     Returns:
         String de 12 dígitos contendo apenas números.
     """
+    # Se for um ID de grupo do WhatsApp (-group ou @g.us), retorna sem alterar
+    if phone and ("-group" in phone or "@g.us" in phone):
+        return phone.strip()
+
     # Remove todos os caracteres não numéricos
     digits = re.sub(r"\D", "", phone)
     

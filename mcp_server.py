@@ -323,7 +323,8 @@ async def send_whatsapp_message(
             input_data={"raw_phone": phone}
         )
         
-        if len(normalized_phone) != 12 or not normalized_phone.isdigit():
+        is_group = "-group" in normalized_phone or "@g.us" in normalized_phone
+        if not is_group and (len(normalized_phone) != 12 or not normalized_phone.isdigit()):
             raise ValueError(f"Número normalizado inválido: '{normalized_phone}'. Deve ter exatamente 12 dígitos.")
             
         # Passo 2: Buscar configurações de Z-API no Supabase Master
@@ -496,7 +497,8 @@ async def send_whatsapp_video(
             input_data={"raw_phone": phone}
         )
         
-        if len(normalized_phone) != 12 or not normalized_phone.isdigit():
+        is_group = "-group" in normalized_phone or "@g.us" in normalized_phone
+        if not is_group and (len(normalized_phone) != 12 or not normalized_phone.isdigit()):
             raise ValueError(f"Número normalizado inválido: '{normalized_phone}'. Deve ter exatamente 12 dígitos.")
             
         # Passo 2: Configuração Z-API
@@ -681,7 +683,8 @@ async def send_whatsapp_document(
             input_data={"raw_phone": phone}
         )
         
-        if len(normalized_phone) != 12 or not normalized_phone.isdigit():
+        is_group = "-group" in normalized_phone or "@g.us" in normalized_phone
+        if not is_group and (len(normalized_phone) != 12 or not normalized_phone.isdigit()):
             raise ValueError(f"Número normalizado inválido: '{normalized_phone}'. Deve ter exatamente 12 dígitos.")
             
         # Passo 2: Configuração Z-API

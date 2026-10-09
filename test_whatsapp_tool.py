@@ -25,6 +25,10 @@ def test_phone_normalization():
     # Caso 5: Formato com caracteres especiais
     assert normalize_phone_to_12_digits("+55 (41) 99525-2559") == "554195252559"
 
+    # Caso 6: Formato de ID de grupo do WhatsApp (-group ou @g.us)
+    assert normalize_phone_to_12_digits("120363427085462383-group") == "120363427085462383-group"
+    assert normalize_phone_to_12_digits("120363427085462383@g.us") == "120363427085462383@g.us"
+
 
 # 2. Testes da Tool `send_whatsapp_message` do MCP
 @pytest.mark.asyncio

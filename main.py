@@ -15,7 +15,9 @@ from schemas import (
     VerificaAgendaResponse,
     SlotDisponibilidade,
     SendVideoRequest,
-    SendVideoResponse
+    SendVideoResponse,
+    SendImageRequest,
+    SendImageResponse
 )
 from utils.tracing import start_workflow_execution
 from utils.availability import check_availability_internal
@@ -171,6 +173,45 @@ async def send_video(payload: SendVideoRequest):
             detail=data["error"]
         )
     return SendVideoResponse(
+        zaapId=data.get("zaapId"),
+        messageId=data.get("messageId"),
+        id=data.get("id"),
+        execution_id=exec_id
+    )
+
+
+@app.post(
+    "/webhook/send-image",
+    response_model=SendImageResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_token)]
+)
+async def send_image(payload: SendImageRequest):
+    """
+    Webhook para envio de imagem via URL pública ou Base64 com legenda/descrição para contato do WhatsApp via Z-API.
+    """
+    from mcp_server import send_whatsapp_image
+    exec_id = uuid.uuid4()
+    raw_res = await send_whatsapp_image(
+        client_id=payload.client_id,
+        phone=payload.phone,
+        image=payload.image,
+        caption=payload.caption,
+        view_once=payload.viewOnce,
+        message_id=payload.messageId,
+        delay_message=payload.delayMessage,
+        edit_image_message_id=payload.editImageMessageId,
+        execution_id=str(exec_id),
+        agent_id=payload.agent_id
+    )
+    import json
+    data = json.loads(raw_res)
+    if "error" in data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=data["error"]
+        )
+    return SendImageResponse(
         zaapId=data.get("zaapId"),
         messageId=data.get("messageId"),
         id=data.get("id"),

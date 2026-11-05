@@ -98,3 +98,23 @@ class SendDocumentResponse(BaseModel):
     execution_id: UUID = Field(..., description="UUID único da execução EDW")
 
 
+# Payload para envio de imagem via Z-API
+class SendImageRequest(BaseModel):
+    client_id: str = Field(..., description="ID do cliente cadastrado no Master")
+    phone: str = Field(..., description="Telefone do destinatário (formato internacional ou DDI+DDD+número)")
+    image: str = Field(..., description="Link público da imagem (URL) ou string em formato Base64")
+    caption: Optional[str] = Field("", description="Descrição/legenda em texto a ser enviada junto com a imagem")
+    viewOnce: Optional[bool] = Field(False, description="Se verdadeiro, define como mensagem de visualização única no WhatsApp")
+    messageId: Optional[str] = Field(None, description="ID da mensagem anterior a ser respondida, se houver")
+    delayMessage: Optional[int] = Field(None, description="Delay em segundos (1 a 15) antes do envio")
+    editImageMessageId: Optional[str] = Field(None, description="Permite editar o caption de uma imagem enviada anteriormente")
+    agent_id: Optional[str] = Field(None, description="ID do agente acionador para rastreamento EDW")
+
+
+class SendImageResponse(BaseModel):
+    zaapId: Optional[str] = Field(None, description="ID interno da mensagem no Z-API")
+    messageId: Optional[str] = Field(None, description="ID único da mensagem enviada no WhatsApp")
+    id: Optional[str] = Field(None, description="ID de referência da mensagem")
+    execution_id: UUID = Field(..., description="UUID único da execução EDW")
+
+

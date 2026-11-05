@@ -1204,6 +1204,13 @@ app.post(
     dependencies=[Depends(main.verify_token)]
 )(main.send_video)
 
+app.post(
+    "/webhook/send-image",
+    response_model=main.SendImageResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(main.verify_token)]
+)(main.send_image)
+
 
 # Adiciona as rotas de ambos os transportes ao FastAPI principal
 app.routes.extend(sse_subapp.routes)
